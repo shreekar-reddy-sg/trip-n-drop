@@ -1,10 +1,5 @@
 /**
  * Calculate distance between two coordinates using Haversine formula
- * @param {number} lat1 - Latitude of first point
- * @param {number} lon1 - Longitude of first point
- * @param {number} lat2 - Latitude of second point
- * @param {number} lon2 - Longitude of second point
- * @returns {number} Distance in kilometers
  */
 const calculateDistance = (lat1, lon1, lat2, lon2) => {
   const R = 6371; // Radius of Earth in kilometers
@@ -27,7 +22,52 @@ const toRad = (value) => {
 };
 
 /**
- * Check if delivery is on traveler's route
+ * Calculate perpendicular distance from a point to a line segment
+ * @param {Object} point - Point coordinates {lat, lng}
+ * @param {Object} lineStart - Line start coordinates {lat, lng}
+ * @param {Object} lineEnd - Line end coordinates {lat, lng}
+ * @returns {number} Distance in kilometers
+ */
+const perpendicularDistance = (point, lineStart, lineEnd) => {
+  const x = point.lat;
+  const y = point.lng;
+  const x1 = lineStart.lat;
+  const y1 = lineStart.lng;
+  const x2 = lineEnd.lat;
+  const y2 = lineEnd.lng;
+
+  const A = x - x1;
+  const B = y - y1;
+  const C = x2 - x1;
+  const D = y2 - y1;
+
+  const dot = A * C + B * D;
+  const lenSq = C * C + D * D;
+  let param = -1;
+
+  if (lenSq !== 0) {
+    param = dot / lenSq;
+  }
+
+  let xx, yy;
+
+  if (param < 0) {
+    xx = x1;
+    yy = y1;
+  } else if (param > 1) {
+    xx = x2;
+    yy = y2;
+  } else {
+    xx = x1 + param * C;
+    yy = y1 + param * D;
+  }
+
+  return calculateDistance(x, y, xx, yy);
+};
+
+/**
+ * Check if delivery points are along the traveler's route
+ * IMPROVED: Now checks if points are near the route line, not just endpoints
  * @param {Object} pickup - Pickup coordinates {lat, lng}
  * @param {Object} delivery - Delivery coordinates {lat, lng}
  * @param {Object} journeyStart - Journey start coordinates {lat, lng}
@@ -36,19 +76,64 @@ const toRad = (value) => {
  * @returns {boolean} True if delivery is on route
  */
 const isOnRoute = (pickup, delivery, journeyStart, journeyEnd, radius = 1.5) => {
-  // Check if pickup is within radius of journey start
-  const pickupDistance = calculateDistance(
-    journeyStart.lat, journeyStart.lng,
-    pickup.lat, pickup.lng
-  );
+  // Calculate distance from pickup point to traveler's route line
+  const pickupToRoute = perpendicularDistance(pickup, journeyStart, journeyEnd);
   
-  // Check if delivery is within radius of journey end
-  const deliveryDistance = calculateDistance(
-    journeyEnd.lat, journeyEnd.lng,
-    delivery.lat, delivery.lng
-  );
+  // Calculate distance from delivery point to traveler's route line
+  const deliveryToRoute = perpendicularDistance(delivery, journeyStart, journeyEnd);
   
-  return pickupDistance <= radius && deliveryDistance <= radius;
+  // Both pickup and delivery should be within radius of the route
+  const pickupNearRoute = pickupToRoute <= radius;
+  const deliveryNearRoute = deliveryToRoute <= radius;
+
+  // Additional check: Pickup should be before delivery along the route
+  const pickupToStart = calculateDistance(journeyStart.lat, journeyStart.lng, pickup.lat, pickup.lng);
+  const deliveryToStart = calculateDistance(journeyStart.lat, journeyStart.lng, delivery.lat, delivery.lng);
+  const pickupBeforeDelivery = pickupToStart <= deliveryToStart;
+
+  return pickupNearRoute && deliveryNearRoute && pickupBeforeDelivery;
 };
 
-module.exports = { calculateDistance, isOnRoute };
+/**
+ * Enhanced route matching with more flexible criteria
+ * This allows matching even if the route only partially overlaps
+ */
+const isOnRouteFlexible = (pickup, delivery, journeyStart, journeyEnd, radius = 2.0) => {
+  // Option 1: Standard perpendicular distance check
+  const pickupToRoute = perpendicularDistance(pickup, journeyStart, journeyEnd);
+  const deliveryToRoute = perpendicularDistance(delivery, journeyStart, journeyEnd);
+  
+  if (pickupToRoute <= radius && deliveryToRoute <= radius) {
+    return true;
+  }
+
+  // Option 2: Check if either point is near journey start or end
+  const pickupToStart = calculateDistance(journeyStart.lat, journeyStart.lng, pickup.lat, pickup.lng);
+  const pickupToEnd = calculateDistance(journeyEnd.lat, journeyEnd.lng, pickup.lat, pickup.lng);
+  const deliveryToStart = calculateDistance(journeyStart.lat, journeyStart.lng, delivery.lat, delivery.lng);
+  const deliveryToEnd = calculateDistance(journeyEnd.lat, journeyEnd.lng, delivery.lat, delivery.lng);
+
+  // Match if pickup is near start and delivery is near end
+  if (pickupToStart <= radius && deliveryToEnd <= radius) {
+    return true;
+  }
+
+  // Match if pickup is near start and delivery is somewhere along the route
+  if (pickupToStart <= radius && deliveryToRoute <= radius) {
+    return true;
+  }
+
+  // Match if pickup is along route and delivery is near end
+  if (pickupToRoute <= radius && deliveryToEnd <= radius) {
+    return true;
+  }
+
+  return false;
+};
+
+module.exports = { 
+  calculateDistance, 
+  isOnRoute, 
+  isOnRouteFlexible,
+  perpendicularDistance 
+};
