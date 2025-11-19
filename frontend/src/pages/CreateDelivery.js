@@ -1,33 +1,8 @@
-// src/pages/CreateDelivery.js
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { deliveryAPI } from '../services/api';
-import MapView from '../components/MapView';
-// If you already have a LocationInput, keep using it; otherwise this file shows a simple fallback.
 import LocationInput from '../components/LocationInput';
-
-const normalizePlace = (place) => {
-  if (!place) return null;
-  // Accepts Google Places result, custom object, or saved shape
-  const lat =
-    typeof place?.geometry?.location?.lat === 'function'
-      ? place.geometry.location.lat()
-      : place?.geometry?.location?.lat ?? place?.coordinates?.lat ?? place?.lat;
-  const lng =
-    typeof place?.geometry?.location?.lng === 'function'
-      ? place.geometry.location.lng()
-      : place?.geometry?.location?.lng ?? place?.coordinates?.lng ?? place?.lng;
-
-  if (lat == null || lng == null) return null;
-
-  return {
-    address: place.formatted_address || place.description || place.address || '',
-    coordinates: {
-      lat: Number(lat),
-      lng: Number(lng),
-    },
-  };
-};
+import MapView from '../components/MapView';
 
 const CreateDelivery = () => {
   const [formData, setFormData] = useState({
@@ -40,15 +15,8 @@ const CreateDelivery = () => {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
-  // This is the function you asked about — paste it here:
-  const handleLocationSelect = (type, place) => {
-    if (!place) return;
-    const loc = normalizePlace(place);
-    if (!loc) {
-      setError('Could not read location coordinates. Please pick from autocomplete suggestions.');
-      return;
-    }
-    setFormData((prev) => ({ ...prev, [type]: loc }));
+  const handleLocationSelect = (type, location) => {
+    setFormData({ ...formData, [type]: location });
   };
 
   const handleSubmit = async (e) => {
@@ -60,35 +28,10 @@ const CreateDelivery = () => {
       return;
     }
 
-    // Validate coordinates are numbers
-    const { pickupLocation, deliveryLocation } = formData;
-    const ok =
-      typeof pickupLocation.coordinates?.lat === 'number' &&
-      typeof pickupLocation.coordinates?.lng === 'number' &&
-      typeof deliveryLocation.coordinates?.lat === 'number' &&
-      typeof deliveryLocation.coordinates?.lng === 'number';
-
-    if (!ok) {
-      setError('Invalid coordinates for pickup or delivery. Please reselect.');
-      return;
-    }
-
-    // Optional: validate receiver mobile (10 digits)
-    const phoneOk = /^[0-9]{10}$/.test(formData.receiverContact);
-    if (!phoneOk) {
-      setError('Enter a valid 10-digit receiver mobile number');
-      return;
-    }
-
     setLoading(true);
+
     try {
-      // Send exactly what backend expects
-      await deliveryAPI.createDelivery({
-        pickupLocation: formData.pickupLocation,
-        deliveryLocation: formData.deliveryLocation,
-        receiverContact: formData.receiverContact,
-        packageSize: formData.packageSize,
-      });
+      await deliveryAPI.createDelivery(formData);
       navigate('/sender/dashboard');
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to create delivery');
@@ -98,23 +41,117 @@ const CreateDelivery = () => {
   };
 
   const packageSizes = [
-    { value: 'S', label: 'Small (Geared Motorbike)' },
-    { value: 'M', label: 'Medium (Scooter)' },
-    { value: 'L', label: 'Large (Car)' },
+    { value: 'S', label: 'Small (Geared Motorbike)', price: 50 },
+    { value: 'M', label: 'Medium (Scooter)', price: 100 },
+    { value: 'L', label: 'Large (Car)', price: 200 },
   ];
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
-      <h1 className="text-2xl font-semibold">Create Delivery</h1>
+    <div className="min-h-screen bg-gray-100 py-8">
+      <div className="container mx-auto px-4 max-w-4xl">
+        <div className="bg-white rounded-lg shadow-lg p-8">
+          <h1 className="text-3xl font-bold text-gray-800 mb-6">
+            Create Delivery Request
+          </h1>
 
-      <form onSubmit={handleSubmit} className="space-y-5">
-        {/* Pickup */}
-        <div className="space-y-2">
-          <label className="block text-sm font-medium">Pickup location</label>
-          {/* Your LocationInput should call onSelect(typeResult) with a Google Place result or custom object */}
-          <LocationInput
-            placeholder="Search pickup address"
-            onSelect={(place) => handleLocationSelect('pickupLocation', place)}
-          />
-          {formData.pickupLocation?.address && (
-            <p className="text-xs opacity-80">Selected: {formData.pickupLocation.address}</p>
+          {error && (
+            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
+              {error}
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <LocationInput
+              label="Pickup Location"
+              placeholder="Enter pickup address"
+              onLocationSelect={(location) => handleLocationSelect('pickupLocation', location)}
+            />
+
+            <LocationInput
+              label="Delivery Location"
+              placeholder="Enter delivery address"
+              onLocationSelect={(location) => handleLocationSelect('deliveryLocation', location)}
+            />
+
+            {formData.pickupLocation && formData.deliveryLocation && (
+              <div className="my-6">
+                <h3 className="text-lg font-medium text-gray-700 mb-3">Route Preview</h3>
+                <MapView
+                  pickup={formData.pickupLocation.coordinates}
+                  delivery={formData.deliveryLocation.coordinates}
+                />
+              </div>
+            )}
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Receiver's Contact Number
+              </label>
+              <input
+                type="tel"
+                value={formData.receiverContact}
+                onChange={(e) => setFormData({ ...formData, receiverContact: e.target.value })}
+                placeholder="Enter 10-digit mobile number"
+                pattern="[0-9]{10}"
+                required
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-3">
+                Package Size
+              </label>
+              <div className="space-y-3">
+                {packageSizes.map((size) => (
+                  <label
+                    key={size.value}
+                    className={`flex items-center justify-between p-4 border-2 rounded-lg cursor-pointer transition-colors ${
+                      formData.packageSize === size.value
+                        ? 'border-primary bg-indigo-50'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <div className="flex items-center">
+                      <input
+                        type="radio"
+                        name="packageSize"
+                        value={size.value}
+                        checked={formData.packageSize === size.value}
+                        onChange={(e) => setFormData({ ...formData, packageSize: e.target.value })}
+                        className="mr-3"
+                      />
+                      <div>
+                        <p className="font-medium text-gray-800">{size.label}</p>
+                      </div>
+                    </div>
+                    <span className="text-lg font-bold text-green-600">₹{size.price}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex space-x-4 pt-4">
+              <button
+                type="button"
+                onClick={() => navigate('/sender/dashboard')}
+                className="flex-1 bg-gray-200 text-gray-700 py-3 rounded-lg hover:bg-gray-300 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={loading}
+                className="flex-1 bg-primary text-white py-3 rounded-lg hover:bg-indigo-700 transition-colors disabled:bg-gray-400"
+              >
+                {loading ? 'Creating...' : 'Create Delivery'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default CreateDelivery;
